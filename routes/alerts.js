@@ -1,7 +1,7 @@
 // women-safety-backend/routes/alerts.js
 
 const express = require('express');
-const router = express.Router();
+const router = express.Router(); //This creates a new mini-Express application called a router. It acts like a separate part of your server that only handles a specific set of routes (/ in this case).
 const Alert = require('../models/Alert'); // Import the Alert model
 
 // GET all alerts
