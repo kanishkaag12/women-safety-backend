@@ -4,6 +4,7 @@ const dotenv = require('dotenv');
 const cors = require('cors');
 const alertsRouter = require('./routes/alerts');
 const authRouter = require('./routes/auth'); // Import the auth router
+const contactsRouter = require('./routes/contacts'); // Import the contacts router
 
 dotenv.config();
 
@@ -23,6 +24,7 @@ app.use(express.json());
 
 app.use('/api/alerts', alertsRouter);
 app.use('/api/auth', authRouter); // Use the auth router for /api/auth endpoints
+app.use('/api/contacts', contactsRouter); // Use the contacts router for /api/contacts endpoints
 
 // Connect to MongoDB Atlas
 mongoose.connect(process.env.MONGODB_URI)

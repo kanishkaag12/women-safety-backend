@@ -20,6 +20,20 @@ const userSchema = new mongoose.Schema({
         required: true,
         unique: true,
     },
+    emergencyContacts: [{
+        name: {
+            type: String,
+            required: true
+        },
+        phoneNumber: {
+            type: String,
+            required: true
+        },
+        relationship: {
+            type: String,
+            default: ''
+        }
+    }],
     role: {
         type: String,
         enum: ['user', 'admin'],
