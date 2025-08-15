@@ -85,16 +85,37 @@ router.get('/assigned/:policeOfficerId', auth, async (req, res) => {
         const { policeOfficerId } = req.params;
         const currentUser = await User.findById(req.user.id);
         
-        if (currentUser.role !== 'police' || currentUser.id !== policeOfficerId) {
+        if (currentUser.role !== 'police') {
+            return res.status(403).json({ message: 'Access denied. Police only.' });
+        }
+        
+        // Allow police to view their own assigned cases
+        if (currentUser.id.toString() !== policeOfficerId) {
+            console.log('User ID mismatch:', currentUser.id, 'vs', policeOfficerId);
             return res.status(403).json({ message: 'Access denied' });
         }
 
+        console.log('Fetching assigned cases for police officer:', policeOfficerId);
+        console.log('Current user ID:', currentUser.id);
+        
         const alerts = await Alert.find({ 
             assignedPoliceOfficer: policeOfficerId 
-        }).populate('userId', 'name email');
+        }).populate('userId', 'name email').populate('assignedPoliceOfficer', 'name badgeNumber');
+        
+        console.log('Found assigned alerts:', alerts.length);
+        
+        // Also log all alerts to see what's in the database
+        const allAlerts = await Alert.find({}).populate('userId', 'name email');
+        console.log('All alerts in database:', allAlerts.map(a => ({
+            id: a._id,
+            status: a.status,
+            assignedPoliceOfficer: a.assignedPoliceOfficer,
+            userName: a.userName
+        })));
         
         res.json(alerts);
     } catch (err) {
+        console.error('Error fetching assigned cases:', err);
         res.status(500).json({ message: err.message });
     }
 });
@@ -102,7 +123,7 @@ router.get('/assigned/:policeOfficerId', auth, async (req, res) => {
 // POST a new alert
 router.post('/', auth, async (req, res) => {
     try {
-        const { userId, userName, location, coordinates, type, priority, status } = req.body;
+        const { userId, userName, location, coordinates, type, priority, status, description } = req.body;
         
         const alert = new Alert({
             userId,
@@ -112,6 +133,7 @@ router.post('/', auth, async (req, res) => {
             type: type || 'manual',
             priority: priority || 'medium',
             status: status || 'active',
+            description,
             createdAt: new Date()
         });
 
@@ -126,7 +148,7 @@ router.post('/', auth, async (req, res) => {
 router.put('/:alertId/:action', auth, async (req, res) => {
     try {
         const { alertId, action } = req.params;
-        const { policeOfficerId, policeStation, badgeNumber } = req.body;
+        const { assignedPoliceOfficer, policeStation, badgeNumber, jurisdiction } = req.body;
         
         const currentUser = await User.findById(req.user.id);
         if (!['admin', 'police'].includes(currentUser.role)) {
@@ -138,12 +160,14 @@ router.put('/:alertId/:action', auth, async (req, res) => {
         switch (action) {
             case 'assign':
                 updateData = {
-                    assignedPoliceOfficer: policeOfficerId,
+                    assignedPoliceOfficer: assignedPoliceOfficer || currentUser.id,
                     policeStation,
                     badgeNumber,
+                    jurisdiction,
                     status: 'assigned',
                     assignedAt: new Date()
                 };
+                console.log('Assigning case with data:', updateData);
                 break;
             case 'acknowledge':
                 updateData = {
@@ -184,6 +208,7 @@ router.put('/:alertId/:action', auth, async (req, res) => {
             return res.status(404).json({ message: 'Alert not found' });
         }
 
+        console.log('Updated alert:', alert);
         res.json(alert);
     } catch (err) {
         res.status(500).json({ message: err.message });
