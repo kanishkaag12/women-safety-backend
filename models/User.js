@@ -61,8 +61,42 @@ const userSchema = new mongoose.Schema({
     }],
     role: {
         type: String,
-        enum: ['user', 'admin'],
+        enum: ['user', 'police', 'admin'],
         default: 'user',
+    },
+    // Police-specific fields
+    badgeNumber: {
+        type: String,
+        default: ''
+    },
+    policeStation: {
+        type: String,
+        default: ''
+    },
+    jurisdiction: {
+        type: String,
+        default: ''
+    },
+    // Admin-specific fields
+    adminLevel: {
+        type: String,
+        enum: ['super_admin', 'moderator'],
+        default: undefined
+    },
+    // User status for admin management
+    status: {
+        type: String,
+        enum: ['active', 'suspended', 'inactive'],
+        default: 'active'
+    },
+    // Timestamps
+    createdAt: {
+        type: Date,
+        default: Date.now
+    },
+    updatedAt: {
+        type: Date,
+        default: Date.now
     }
 });
 
