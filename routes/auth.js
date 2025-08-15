@@ -20,17 +20,65 @@ const auth = (req, res, next) => {
     }
 };
 
+// Get current user's profile
+router.get('/profile', auth, async (req, res) => {
+    try {
+        const user = await User.findById(req.user.id).select('-password');
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+        res.json(user);
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
+});
+
+// Update current user's profile
+router.put('/profile', auth, async (req, res) => {
+    try {
+        const allowedFields = [
+            'name',
+            'phoneNumber',
+            'age',
+            'gender',
+            'homeAddress',
+            'relativeAddress',
+            'guardianContactNumber'
+        ];
+        const updates = {};
+        for (const key of allowedFields) {
+            if (Object.prototype.hasOwnProperty.call(req.body, key)) {
+                updates[key] = req.body[key];
+            }
+        }
+
+        const user = await User.findByIdAndUpdate(
+            req.user.id,
+            { $set: updates },
+            { new: true, runValidators: true, select: '-password' }
+        );
+
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        res.json(user);
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
+});
+
 // User Registration
 router.post('/register', async (req, res) => {
     try {
-        const { name, email, password, aadhaarNumber } = req.body;
+        const { name, email, password, aadhaarNumber, phoneNumber } = req.body;
         // Check if user already exists
         let user = await User.findOne({ email });
         if (user) {
             return res.status(400).json({ message: 'User already exists' });
         }
         // Create new user
-        user = new User({ name, email, password, aadhaarNumber });
+        user = new User({ name, email, password, aadhaarNumber, phoneNumber });
         await user.save();
         res.status(201).json({ message: 'User registered successfully' });
     } catch (err) {

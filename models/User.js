@@ -20,6 +20,31 @@ const userSchema = new mongoose.Schema({
         required: true,
         unique: true,
     },
+    // Optional profile fields
+    phoneNumber: {
+        type: String,
+        default: ''
+    },
+    age: {
+        type: Number
+    },
+    gender: {
+        type: String,
+        enum: ['female', 'male', 'other', 'prefer_not_to_say'],
+        default: undefined
+    },
+    homeAddress: {
+        type: String,
+        default: ''
+    },
+    relativeAddress: {
+        type: String,
+        default: ''
+    },
+    guardianContactNumber: {
+        type: String,
+        default: ''
+    },
     emergencyContacts: [{
         name: {
             type: String,
