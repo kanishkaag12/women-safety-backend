@@ -58,6 +58,9 @@ const io = new Server(server, {
     }
 });
 
+// Expose io to routes via app reference
+app.set('io', io);
+
 io.use((socket, next) => {
     try {
         const token = socket.handshake.auth?.token || socket.handshake.query?.token;
@@ -78,6 +81,10 @@ io.on('connection', (socket) => {
         const room = `alert:${alertId}`;
         socket.join(room);
         console.log(`Socket ${socket.id} joined room ${room}`);
+        // Ask existing participants (e.g., the active recorder) to resend init segment
+        try {
+            socket.to(room).emit('request-audio-restart', { alertId, reason: 'listener-joined' });
+        } catch (_) {}
     });
 
     socket.on('leave-alert', ({ alertId }) => {
@@ -91,6 +98,7 @@ io.on('connection', (socket) => {
     socket.on('audio-start', ({ alertId, mimeType }) => {
         if (!alertId) return;
         const room = `alert:${alertId}`;
+        console.log(`[audio-start] alertId=${alertId} mimeType=${mimeType} from socket ${socket.id}`);
         // Notify room listeners and also broadcast a global live-status for dashboards
         socket.to(room).emit('audio-start', { mimeType });
         io.emit('live-status', { alertId, isLive: true, mimeType });
@@ -99,6 +107,16 @@ io.on('connection', (socket) => {
     socket.on('audio-chunk', ({ alertId, mimeType, chunk }) => {
         if (!alertId || !chunk) return;
         const room = `alert:${alertId}`;
+        // Diagnostic: try to infer size without dumping data
+        let size = 0;
+        try {
+            if (chunk instanceof ArrayBuffer) size = chunk.byteLength;
+            else if (chunk && chunk.type === 'Buffer' && Array.isArray(chunk.data)) size = chunk.data.length;
+            else if (ArrayBuffer.isView(chunk)) size = chunk.byteLength || chunk.buffer?.byteLength || 0;
+        } catch (_) {}
+        if ((Math.random() * 10) < 1) { // sample ~10% to avoid log spam
+            console.log(`[audio-chunk] alertId=${alertId} mimeType=${mimeType} size=${size}B from socket ${socket.id}`);
+        }
         // Broadcast to all except sender
         socket.to(room).emit('audio-chunk', { mimeType, chunk });
     });
@@ -106,9 +124,27 @@ io.on('connection', (socket) => {
     socket.on('audio-end', ({ alertId }) => {
         if (!alertId) return;
         const room = `alert:${alertId}`;
+        console.log(`[audio-end] alertId=${alertId} from socket ${socket.id}`);
         socket.to(room).emit('audio-end');
         // Broadcast global live-status false so dashboards can disable Listen
         io.emit('live-status', { alertId, isLive: false });
+    });
+
+    // Police can request the active microphone client to stop and finalize
+    socket.on('stop-recording', ({ alertId }) => {
+        if (!alertId) return;
+        const room = `alert:${alertId}`;
+        console.log(`[stop-recording] relay to room ${room} from ${socket.id}`);
+        io.to(room).emit('stop-recording', { alertId, by: socket.user?.role || 'unknown' });
+        // Also broadcast globally as a fallback if the recorder hasn't joined the room yet
+        io.emit('stop-recording', { alertId, by: socket.user?.role || 'unknown' });
+    });
+
+    // After upload completes on client, notify dashboards to refresh recordings
+    socket.on('recording-saved', ({ alertId }) => {
+        if (!alertId) return;
+        console.log(`[recording-saved] alertId=${alertId} from ${socket.id}`);
+        io.emit('recording-saved', { alertId });
     });
 
     socket.on('disconnect', (reason) => {

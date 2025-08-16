@@ -346,6 +346,8 @@ router.post('/voice', auth, upload.single('audio'), async (req, res) => {
                 mimeType: fileMime,
                 size: fileSize
             });
+            // Notify dashboards to refresh recordings
+            try { req.app.get('io')?.emit('recording-saved', { alertId: existing._id.toString() }); } catch (_) {}
             return res.json(existing);
         }
 
@@ -378,6 +380,8 @@ router.post('/voice', auth, upload.single('audio'), async (req, res) => {
             mimeType: fileMime,
             size: fileSize
         });
+        // Notify dashboards to refresh recordings
+        try { req.app.get('io')?.emit('recording-saved', { alertId: saved._id.toString() }); } catch (_) {}
         return res.status(201).json(saved);
     } catch (err) {
         console.error('Voice upload failed:', err);
