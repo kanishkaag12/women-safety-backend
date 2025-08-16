@@ -62,6 +62,20 @@ const AlertSchema = new mongoose.Schema({
         enum: ['app', 'voice', 'manual', 'emergency'],
         default: 'app'
     },
+    emergencyContacts: [{
+        name: {
+            type: String,
+            required: true
+        },
+        phoneNumber: {
+            type: String,
+            required: true
+        },
+        relationship: {
+            type: String,
+            default: ''
+        }
+    }],
     tags: [String],
     // Response tracking
     responseTime: Number, // in minutes

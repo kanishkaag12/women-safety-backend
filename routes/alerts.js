@@ -123,7 +123,7 @@ router.get('/assigned/:policeOfficerId', auth, async (req, res) => {
 // POST a new alert
 router.post('/', auth, async (req, res) => {
     try {
-        const { userId, userName, location, coordinates, type, priority, status, description } = req.body;
+        const { userId, userName, location, coordinates, type, priority, status, description, emergencyContacts } = req.body;
         
         const alert = new Alert({
             userId,
@@ -134,6 +134,7 @@ router.post('/', auth, async (req, res) => {
             priority: priority || 'medium',
             status: status || 'active',
             description,
+            emergencyContacts: emergencyContacts || [],
             createdAt: new Date()
         });
 

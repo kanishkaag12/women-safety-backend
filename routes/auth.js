@@ -43,12 +43,28 @@ router.put('/profile', auth, async (req, res) => {
             'gender',
             'homeAddress',
             'relativeAddress',
-            'guardianContactNumber'
+            'guardianContactNumber',
+            'emergencyContacts'
         ];
         const updates = {};
         for (const key of allowedFields) {
             if (Object.prototype.hasOwnProperty.call(req.body, key)) {
                 updates[key] = req.body[key];
+            }
+        }
+
+        // Validate emergency contacts if provided
+        if (updates.emergencyContacts) {
+            if (!Array.isArray(updates.emergencyContacts)) {
+                return res.status(400).json({ message: 'Emergency contacts must be an array' });
+            }
+            
+            for (const contact of updates.emergencyContacts) {
+                if (!contact.name || !contact.phoneNumber) {
+                    return res.status(400).json({ 
+                        message: 'Each emergency contact must have a name and phone number' 
+                    });
+                }
             }
         }
 
