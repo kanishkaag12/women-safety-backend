@@ -4,7 +4,11 @@ const express = require('express');
 const router = express.Router();
 const Alert = require('../models/Alert');
 const User = require('../models/User');
+const VoiceRecording = require('../models/VoiceRecording');
 const jwt = require('jsonwebtoken'); // Added missing import for jwt
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
 
 // Middleware to verify JWT token
 const auth = (req, res, next) => {
@@ -33,6 +37,22 @@ router.get('/', auth, async (req, res) => {
 
         const alerts = await Alert.find().populate('userId', 'name email').sort({ createdAt: -1 });
         res.json(alerts);
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
+});
+
+// GET recordings for an alert (admin and police only)
+router.get('/:alertId/recordings', auth, async (req, res) => {
+    try {
+        const currentUser = await User.findById(req.user.id);
+        if (!['admin', 'police'].includes(currentUser.role)) {
+            return res.status(403).json({ message: 'Access denied. Admin and Police only.' });
+        }
+        const recordings = await VoiceRecording.find({ alertId: req.params.alertId })
+            .populate('userId', 'name email')
+            .sort({ createdAt: -1 });
+        res.json(recordings);
     } catch (err) {
         res.status(500).json({ message: err.message });
     }
@@ -125,6 +145,11 @@ router.post('/', auth, async (req, res) => {
     try {
         const { userId, userName, location, coordinates, type, priority, status, description, emergencyContacts } = req.body;
         
+        const user = await User.findById(userId);
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+
         const alert = new Alert({
             userId,
             userName,
@@ -134,7 +159,7 @@ router.post('/', auth, async (req, res) => {
             priority: priority || 'medium',
             status: status || 'active',
             description,
-            emergencyContacts: emergencyContacts || [],
+            emergencyContacts: user.emergencyContacts || [],
             createdAt: new Date()
         });
 
@@ -171,10 +196,22 @@ router.put('/:alertId/:action', auth, async (req, res) => {
                 console.log('Assigning case with data:', updateData);
                 break;
             case 'acknowledge':
-                updateData = {
-                    status: 'acknowledged',
-                    acknowledgedAt: new Date()
-                };
+                // If not already assigned, assign to the acknowledging officer so it shows up in their lists
+                try {
+                    const existingAlert = await Alert.findById(alertId);
+                    updateData = {
+                        status: 'acknowledged',
+                        acknowledgedAt: new Date(),
+                        ...(existingAlert && !existingAlert.assignedPoliceOfficer ? { assignedPoliceOfficer: currentUser.id } : {})
+                    };
+                } catch (e) {
+                    // Fallback: still acknowledge even if read failed
+                    updateData = {
+                        status: 'acknowledged',
+                        acknowledgedAt: new Date(),
+                        assignedPoliceOfficer: currentUser.id
+                    };
+                }
                 break;
             case 'in-progress':
                 updateData = {
@@ -232,6 +269,119 @@ router.delete('/:id', auth, async (req, res) => {
         res.json({ message: 'Alert deleted successfully' });
     } catch (err) {
         res.status(500).json({ message: err.message });
+    }
+});
+
+// --- Voice Alert Upload (multipart/form-data) ---
+// Storage setup
+const uploadsBase = path.join(__dirname, '..', 'uploads');
+const voiceDir = path.join(uploadsBase, 'voice');
+try {
+    if (!fs.existsSync(uploadsBase)) fs.mkdirSync(uploadsBase);
+    if (!fs.existsSync(voiceDir)) fs.mkdirSync(voiceDir);
+} catch (e) {
+    console.error('Failed to ensure upload directories exist:', e);
+}
+
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        cb(null, voiceDir);
+    },
+    filename: (req, file, cb) => {
+        const ext = path.extname(file.originalname || '').toLowerCase() || '.webm';
+        cb(null, `${Date.now()}-${Math.round(Math.random() * 1e6)}${ext}`);
+    }
+});
+
+const upload = multer({
+    storage,
+    limits: { fileSize: 20 * 1024 * 1024 }, // 20MB
+    fileFilter: (req, file, cb) => {
+        // Accept common audio mime types
+        const ok = /audio\/(webm|wav|mp4|mpeg|ogg|3gpp|3gpp2)/.test(file.mimetype || '');
+        if (!ok) return cb(new Error('Unsupported audio type'));
+        cb(null, true);
+    }
+});
+
+// Create or attach a voice alert
+router.post('/voice', auth, upload.single('audio'), async (req, res) => {
+    try {
+        const { userId, userName, location, coordinates, type, priority, status, alertId, mimeType } = req.body;
+        if (!req.file) {
+            return res.status(400).json({ message: 'Audio file is required (field name: audio)' });
+        }
+
+        const currentUser = await User.findById(req.user.id);
+        if (!currentUser) return res.status(401).json({ message: 'Invalid user' });
+
+        const fileUrl = `/uploads/voice/${req.file.filename}`;
+        const fileMime = mimeType || req.file.mimetype || 'audio/webm';
+        const fileSize = req.file.size || 0;
+
+        // If alertId provided attach voice to existing alert and record
+        if (alertId) {
+            const existing = await Alert.findByIdAndUpdate(
+                alertId,
+                {
+                    voiceFileUrl: fileUrl,
+                    voiceMimeType: fileMime,
+                    voiceSize: fileSize,
+                    // keep status/type if provided
+                    ...(type ? { type } : {}),
+                    ...(status ? { status } : {})
+                },
+                { new: true }
+            );
+            if (!existing) return res.status(404).json({ message: 'Alert not found' });
+
+            // Attribute the recording to the original alert owner (victim), not the uploader
+            const ownerUser = await User.findById(existing.userId);
+
+            await VoiceRecording.create({
+                alertId: existing._id,
+                userId: ownerUser ? ownerUser._id : currentUser._id,
+                userName: ownerUser?.name || userName || currentUser.name || 'Unknown',
+                fileUrl: fileUrl,
+                mimeType: fileMime,
+                size: fileSize
+            });
+            return res.json(existing);
+        }
+
+        // Otherwise create a new alert of type voice
+        const ownerUserId = userId || req.user.id;
+        const owner = await User.findById(ownerUserId);
+        if (!owner) return res.status(404).json({ message: 'User not found' });
+
+        const alert = new Alert({
+            userId: owner._id,
+            userName: userName || owner.name || 'Unknown',
+            location: location || 'Location not available',
+            coordinates: coordinates || '',
+            type: type || 'voice',
+            priority: priority || 'high',
+            status: status || 'active',
+            createdAt: new Date(),
+            voiceFileUrl: fileUrl,
+            voiceMimeType: fileMime,
+            voiceSize: fileSize
+        });
+
+        const saved = await alert.save();
+        // also save a recording entry
+        await VoiceRecording.create({
+            alertId: saved._id,
+            userId: owner._id,
+            userName: saved.userName,
+            fileUrl: fileUrl,
+            mimeType: fileMime,
+            size: fileSize
+        });
+        return res.status(201).json(saved);
+    } catch (err) {
+        console.error('Voice upload failed:', err);
+        return res.status(500).json({ message: err.message || 'Server error' });
     }
 });
 

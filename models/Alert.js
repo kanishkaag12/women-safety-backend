@@ -83,6 +83,19 @@ const AlertSchema = new mongoose.Schema({
     escalatedBy: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User'
+    },
+    // Voice recording metadata (optional)
+    voiceFileUrl: {
+        type: String,
+        default: ''
+    },
+    voiceMimeType: {
+        type: String,
+        default: ''
+    },
+    voiceSize: {
+        type: Number,
+        default: 0
     }
 });
 
